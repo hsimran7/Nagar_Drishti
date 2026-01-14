@@ -5,122 +5,147 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<div class="page-header" style="margin-bottom: 30px;">
-    <h2 style="font-size: 2.2rem; font-weight: 800;">City Intelligence Hub</h2>
-    <p style="color: var(--secondary);">Interactive Map and Drill-down Analytics.</p>
-</div>
-
-<div class="priority-card" style="background: #fff5f5; border: 1px solid #fee2e2; padding: 20px; border-radius: 20px; margin-bottom: 40px; box-shadow: var(--shadow);">
-    <h3 style="color: #dc2626; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-        <span style="background: #fee2e2; padding: 8px; border-radius: 12px;">🤖</span> AI Critical Path
-    </h3>
-    {% for p in ai_priority %}
-    <div style="background: white; padding: 12px; margin-bottom: 8px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #f1f5f9;">
-        <span><strong>{{ p.issue }}</strong> - {{ p.address }}</span>
-        <a href="{{ url_for('resolve', id=p.id) }}" class="btn-resolve" style="background: #4f46e5; color: white; padding: 8px 15px; border-radius: 8px; text-decoration: none; font-size: 0.85rem;">Resolve Now</a>
-    </div>
-    {% endfor %}
-</div>
-
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
-    <div class="chart-wrapper" style="background: white; padding: 25px; border-radius: 24px; border: 1px solid #e2e8f0; box-shadow: var(--shadow);">
-        <h3 style="margin-bottom: 15px;">Live Problem Hotspots</h3>
-        <div id="map" style="height: 400px; border-radius: 16px;"></div>
+<div style="padding: 20px; background-color: #f8fafc; min-height: 100vh;">
+    <div style="margin-bottom: 25px;">
+        <h2 style="font-weight: 800; color: #1e293b; margin: 0;">City Command Center</h2>
+        <p style="color: #64748b; margin: 5px 0 0 0;">Live Intelligence & Geospatial Analytics</p>
     </div>
 
-    <div class="chart-wrapper" style="background: white; padding: 25px; border-radius: 24px; border: 1px solid #e2e8f0; box-shadow: var(--shadow);">
-        <h3>Total Complaints by Area</h3>
-        <p style="font-size: 0.8rem; color: #64748b; margin-bottom: 15px;">Click on a bar to see detailed issues for that area.</p>
-        <canvas id="mainAreaChart" style="max-height: 350px;"></canvas>
+    <div style="background: white; border-left: 5px solid #ef4444; padding: 20px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+        <h3 style="color: #ef4444; margin-top: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 10px;">
+            <span>🤖</span> AI Critical Path (Unresolved High Priority)
+        </h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 15px;">
+            {% for p in ai_priority %}
+            <div style="background: #fef2f2; padding: 10px 15px; border-radius: 8px; font-size: 0.9rem; border: 1px solid #fee2e2;">
+                <strong>{{ p.issue }}</strong> @ {{ p.address }}
+            </div>
+            {% else %}
+            <p style="color: #64748b; font-size: 0.9rem; margin: 0;">✅ All high-priority issues are currently clear.</p>
+            {% endfor %}
+        </div>
     </div>
-</div>
 
-<div id="drillDownContainer" class="chart-wrapper" style="display: none; background: #f8fafc; padding: 30px; border-radius: 24px; border: 2px dashed #4f46e5; margin-bottom: 30px;">
-    <h3 id="drillDownTitle" style="color: #4f46e5; margin-bottom: 20px;">Detailed Issues in [Area]</h3>
-    <canvas id="drillDownChart" style="max-height: 350px;"></canvas>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px;">
+        
+        <div style="background: white; padding: 20px; border-radius: 16px; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);">
+            <h3 style="margin-top: 0; font-size: 1rem; color: #475569;">Live Problem Hotspots</h3>
+            <div id="map" style="height: 400px; width: 100%; border-radius: 12px; border: 1px solid #e2e8f0;"></div>
+        </div>
+
+        <div style="background: white; padding: 20px; border-radius: 16px; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);">
+            <h3 style="margin-top: 0; font-size: 1rem; color: #475569;">Total Complaints by Neighborhood</h3>
+            <canvas id="mainAreaChart"></canvas>
+        </div>
+    </div>
+
+    <div id="drillDownContainer" style="display: none; margin-top: 30px; background: white; padding: 30px; border-radius: 16px; border: 2px dashed #6366f1;">
+        <h3 id="drillDownTitle" style="color: #4338ca; margin-top: 0; text-align: center;">Issue Breakdown</h3>
+        <div style="max-width: 350px; margin: 0 auto;">
+            <canvas id="drillDownChart"></canvas>
+        </div>
+    </div>
 </div>
 
 <script>
-    // Safe data transfer
-    const reports = {{ complaints | tojson | safe }};
-    const knownAreas = ["Sardar Nagar", "Basti Jodhewal", "Haibowal", "Samrala Chownk", "Model Town"];
+    // 1. SAFE DATA LOADING
+    // Using JSON.parse to ensure characters like newlines don't break JS
+    const activeReports = JSON.parse('{{ active_complaints | tojson | safe }}');
+    const allReports = JSON.parse('{{ all_complaints | tojson | safe }}');
 
-    // 1. PROCESS DATA FOR MAP & MAIN CHART
-    const areaCounts = {};
-    knownAreas.forEach(area => areaCounts[area] = 0);
-    
-    reports.forEach(r => {
+    // 2. COORDINATE CONFIG
+    const areaCoords = {
+        "Sardar Nagar": [30.915, 75.865],
+        "Basti Jodhewal": [30.932, 75.875],
+        "Haibowal": [30.920, 75.835],
+        "Samrala Chownk": [30.905, 75.885],
+        "Model Town": [30.890, 75.845],
+        "Default": [30.901, 75.857]
+    };
+
+    // 3. MAP LOGIC
+    var map = L.map('map').setView([30.901, 75.857], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    activeReports.forEach(r => {
+        let coords = areaCoords["Default"];
         const addr = (r.address || "").toLowerCase();
-        knownAreas.forEach(area => {
-            if (addr.includes(area.toLowerCase())) areaCounts[area]++;
+        for (const [name, loc] of Object.entries(areaCoords)) {
+            if (addr.includes(name.toLowerCase())) { coords = loc; break; }
+        }
+        // Jitter markers so they don't stack perfectly
+        const lat = coords[0] + (Math.random() - 0.5) * 0.01;
+        const lon = coords[1] + (Math.random() - 0.5) * 0.01;
+        
+        L.circleMarker([lat, lon], {
+            radius: 8,
+            color: r.severity === 'High' ? '#ef4444' : '#3b82f6',
+            fillColor: r.severity === 'High' ? '#ef4444' : '#3b82f6',
+            fillOpacity: 0.6
+        }).addTo(map).bindPopup(`<b>${r.issue}</b><br>${r.address}`);
+    });
+
+    // 4. MAIN CHART LOGIC
+    const knownAreas = ["Sardar Nagar", "Basti Jodhewal", "Haibowal", "Samrala Chownk", "Model Town"];
+    const areaCounts = {};
+    knownAreas.forEach(a => areaCounts[a] = 0);
+
+    allReports.forEach(r => {
+        const addr = (r.address || "").toLowerCase();
+        knownAreas.forEach(a => {
+            if (addr.includes(a.toLowerCase())) areaCounts[a]++;
         });
     });
 
-    // 2. INITIALIZE LIVE MAP
-    // Note: Coordinates centered on Ludhiana context as per your database snippets
-    var map = L.map('map').setView([30.901, 75.857], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-    reports.forEach(r => {
-        // Random scattering for visualization (normally would use Lat/Lng from DB)
-        var lat = 30.901 + (Math.random() - 0.5) * 0.04;
-        var lon = 75.857 + (Math.random() - 0.5) * 0.04;
-        var color = r.severity === 'High' ? 'red' : 'blue';
-        L.circleMarker([lat, lon], { radius: 6, color: color, fillOpacity: 0.6 }).addTo(map).bindPopup(r.issue);
-    });
-
-    // 3. RENDER MAIN AREA CHART
-    let drillDownChartInstance = null;
-    const mainChart = new Chart(document.getElementById('mainAreaChart'), {
+    const ctx = document.getElementById('mainAreaChart').getContext('2d');
+    const mainChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: Object.keys(areaCounts),
             datasets: [{
-                label: 'Number of Complaints',
+                label: 'Total Requests',
                 data: Object.values(areaCounts),
-                backgroundColor: '#4f46e5',
-                borderRadius: 8
+                backgroundColor: '#6366f1',
+                borderRadius: 6
             }]
         },
         options: {
-            onClick: (event, elements) => {
+            responsive: true,
+            onClick: (e, elements) => {
                 if (elements.length > 0) {
-                    const index = elements[0].index;
-                    const areaName = mainChart.data.labels[index];
+                    const areaName = mainChart.data.labels[elements[0].index];
                     showDrillDown(areaName);
                 }
             }
         }
     });
 
-    // 4. DRILL DOWN LOGIC
+    // 5. DRILL DOWN LOGIC
+    let drillChartInstance = null;
     function showDrillDown(areaName) {
-        const drillContainer = document.getElementById('drillDownContainer');
-        const drillTitle = document.getElementById('drillDownTitle');
-        drillContainer.style.display = 'block';
-        drillTitle.innerText = `Problem Breakdown: ${areaName}`;
+        document.getElementById('drillDownContainer').style.display = 'block';
+        document.getElementById('drillDownTitle').innerText = `Problem Breakdown: ${areaName}`;
 
-        const issueMap = {};
-        reports.forEach(r => {
+        const issues = {};
+        allReports.forEach(r => {
             if (r.address.toLowerCase().includes(areaName.toLowerCase())) {
-                issueMap[r.issue] = (issueMap[r.issue] || 0) + 1;
+                issues[r.issue] = (issues[r.issue] || 0) + 1;
             }
         });
 
-        if (drillDownChartInstance) drillDownChartInstance.destroy();
-
-        drillDownChartInstance = new Chart(document.getElementById('drillDownChart'), {
+        if (drillChartInstance) drillChartInstance.destroy();
+        const dCtx = document.getElementById('drillDownChart').getContext('2d');
+        drillChartInstance = new Chart(dCtx, {
             type: 'doughnut',
             data: {
-                labels: Object.keys(issueMap),
+                labels: Object.keys(issues),
                 datasets: [{
-                    data: Object.values(issueMap),
-                    backgroundColor: ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#94a3b8']
+                    data: Object.values(issues),
+                    backgroundColor: ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
                 }]
-            },
-            options: { plugins: { legend: { position: 'bottom' } } }
+            }
         });
-        drillContainer.scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('drillDownContainer').scrollIntoView({ behavior: 'smooth' });
     }
 </script>
 
